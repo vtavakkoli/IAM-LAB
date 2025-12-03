@@ -1,0 +1,164 @@
+﻿networks:
+  iam_lab_net:
+    driver: bridge
+  
+services:
+  openldap:
+    image: osixia/openldap:latest
+    container_name: iam-lab-openldap
+    environment:
+      LDAP_BASE_DN: "dc=iam,dc=lab"
+      LDAP_ORGANISATION: "IAM LAB ORG"
+      LDAP_DOMAIN: "iam.lab"
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_TLS: "false"             # deactivate TLS for the LDAP server
+    volumes:
+      - ./ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-bootstrap.ldif
+    networks:
+      - iam_lab_net
+    command: --copy-service
+    restart: unless-stopped
+  openldap-ui:
+    image: osixia/phpldapadmin:latest
+    container_name: iam-lab-openldap-ui
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: "false"   # deactivate HTTPS
+    networks:
+      - iam_lab_net
+    ports:
+      - "9150:80"
+    restart: unless-stopped
+    depends_on:
+      - openldap
+  keycloak:
+    image: keycloak/keycloak:26.2
+    container_name: iam-lab-keycloak
+    command: start-dev --import-realm
+    ports:
+      - "9100:8080"
+    volumes:
+      - ./keycloak/config:/opt/keycloak/data/import
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://10.0.0.50:9100
+      KC_HOSTNAME_PORT: 9100
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY: "edge"
+    networks: [iam_lab_net]
+
+  kong:
+    build: ./kong
+    image: kong-oidc:latest
+    container_name: iam-lab-kong
+    ports:
+      - "9180:8000"   # proxy
+      - "9181:8001"   # admin
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_PLUGINS: bundled, oidc-role, acl
+      KONG_X_SESSION_SECRET: "a-very-long-random-string"
+      KONG_NGINX_LARGE_CLIENT_HEADER_BUFFERS: "'4 16k'"
+      KONG_LOG_LEVEL: debug
+    volumes:
+      - ./kong/config:/etc/kong
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [iam_lab_net]
+
+  lob1:
+    build: ./lob-services
+    container_name: iam-lab-lob1
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      SERVICE_NAME: LOB-1
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://keycloak:8080
+      KEYCLOAK_REALM: IAM_Lab_Realm
+      OIDC_DISABLE_HTTPS: "true"
+    restart: unless-stopped
+    networks: [iam_lab_net]
+
+  lob2:
+    build: ./lob-services
+    container_name: iam-lab-lob2
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      SERVICE_NAME: LOB-2
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://keycloak:8080
+      KEYCLOAK_REALM: IAM_Lab_Realm
+      OIDC_DISABLE_HTTPS: "true"
+    restart: unless-stopped
+    networks: [iam_lab_net]
+
+  lob3:
+    build: ./lob-services
+    container_name: iam-lab-lob3
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      SERVICE_NAME: LOB-3
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://keycloak:8080
+      KEYCLOAK_REALM: IAM_Lab_Realm
+      OIDC_DISABLE_HTTPS: "true"
+    restart: unless-stopped
+    networks: [iam_lab_net]
+
+  webapp1:
+    build: ./WebApp1
+    container_name: iam-lab-webapp1
+    ports:
+      - "9101:8080"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      KEYCLOAK_PUBLIC_URL: http://10.0.0.50:9100
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: IAM_Lab_Realm
+      CLIENT_ID: webapp1-client
+      CLIENT_SECRET: S3cr3tNumberOne
+      REDIRECT_URI: http://10.0.0.50:9101/auth/callback
+      KONG_API_URL: http://kong:8000
+      OIDC_DISABLE_HTTPS: "true"      # dev only; switch to false with TLS
+      SERVICE_NAME: WebApp1
+      COOKIE_NAME: iam-lab-bff-app1
+    volumes:
+      - ./data-protection/webapp1:/keys   # persist DataProtection keys
+    depends_on:
+      kong:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [iam_lab_net]
+
+  webapp2:
+    build: ./WebApp2
+    container_name: iam-lab-webapp2
+    ports:
+      - "9102:8080"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      KEYCLOAK_PUBLIC_URL: http://10.0.0.50:9100
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: IAM_Lab_Realm
+      CLIENT_ID: webapp2-client
+      CLIENT_SECRET: S3cr3tNumberTwo
+      REDIRECT_URI: http://10.0.0.50:9102/auth/callback
+      KONG_API_URL: http://kong:8000
+      OIDC_DISABLE_HTTPS: "true"
+      SERVICE_NAME: WebApp2
+    volumes:
+      - ./data-protection/webapp2:/keys
+    depends_on:
+      kong:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [iam_lab_net]
