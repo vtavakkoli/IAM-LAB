@@ -1,0 +1,18 @@
+# .NET build artifacts
+**/bin/
+**/obj/
+
+# IDE/user settings
+*.user
+*.suo
+*.userprefs
+.vscode/
+.idea/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Logs and temp files
+*.log
+*.tmp
