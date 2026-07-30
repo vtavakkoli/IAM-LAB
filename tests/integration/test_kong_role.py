@@ -103,6 +103,10 @@ def ensure_test_client(token: str) -> None:
         "directAccessGrantsEnabled": True,
         "serviceAccountsEnabled": False,
         "fullScopeAllowed": True,
+        # Match the lab's normal web clients. The profile client scope supplies
+        # the standard subject/username identity claims expected by Kong-Role.
+        "defaultClientScopes": ["profile"],
+        "optionalClientScopes": ["offline_access"],
         "protocolMappers": [
             {
                 "name": "realm-roles",
@@ -140,7 +144,7 @@ def user_token(username: str) -> str:
             "client_id": TEST_CLIENT,
             "username": username,
             "password": username,
-            "scope": "openid",
+            "scope": "openid profile",
         },
     )
     if status != 200 or "access_token" not in payload:
@@ -161,13 +165,22 @@ def call_lob(path: str, token: str | None = None) -> tuple[int, str]:
 
 def wait_for_gateway(token: str) -> None:
     deadline = time.time() + TIMEOUT_SECONDS
+    last_status, last_body = 0, "no response"
     while time.time() < deadline:
-        status, _ = call_lob("/lob1", token)
-        if status == 200:
+        last_status, last_body = call_lob("/lob1", token)
+        if last_status == 200:
             print("[ready] Kong-Role and LOB services are available")
             return
+        # Once a valid Keycloak token reaches Kong, these statuses represent a
+        # deterministic authentication/authorization defect, not startup delay.
+        if last_status in (401, 403, 500):
+            raise RuntimeError(
+                f"Kong-Role rejected a valid readiness token: HTTP {last_status}: {last_body}"
+            )
         time.sleep(2)
-    raise RuntimeError("Kong-Role gateway did not become ready")
+    raise RuntimeError(
+        f"Kong-Role gateway did not become ready: HTTP {last_status}: {last_body}"
+    )
 
 
 def assert_status(label: str, actual: int, expected: int, body: str) -> None:
@@ -198,8 +211,12 @@ def main() -> int:
             raise AssertionError(
                 f"{username} token issuer mismatch: {claims.get('iss')} != {PUBLIC_ISSUER}"
             )
+        if not claims.get("sub"):
+            raise AssertionError(f"{username} token is missing the required sub claim: {claims}")
         tokens[username] = token
-        print(f"[pass] {username} token contains {sorted(required_roles)}")
+        print(
+            f"[pass] {username} token subject={claims['sub']} roles={sorted(required_roles)}"
+        )
 
     wait_for_gateway(tokens["alice"])
 
