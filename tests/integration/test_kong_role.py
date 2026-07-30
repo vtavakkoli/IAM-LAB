@@ -103,8 +103,6 @@ def ensure_test_client(token: str) -> None:
         "directAccessGrantsEnabled": True,
         "serviceAccountsEnabled": False,
         "fullScopeAllowed": True,
-        # Match the lab's normal web clients. The profile client scope supplies
-        # the standard subject/username identity claims expected by Kong-Role.
         "defaultClientScopes": ["profile"],
         "optionalClientScopes": ["offline_access"],
         "protocolMappers": [
@@ -171,8 +169,6 @@ def wait_for_gateway(token: str) -> None:
         if last_status == 200:
             print("[ready] Kong-Role and LOB services are available")
             return
-        # Once a valid Keycloak token reaches Kong, these statuses represent a
-        # deterministic authentication/authorization defect, not startup delay.
         if last_status in (401, 403, 500):
             raise RuntimeError(
                 f"Kong-Role rejected a valid readiness token: HTTP {last_status}: {last_body}"
@@ -211,11 +207,13 @@ def main() -> int:
             raise AssertionError(
                 f"{username} token issuer mismatch: {claims.get('iss')} != {PUBLIC_ISSUER}"
             )
-        if not claims.get("sub"):
-            raise AssertionError(f"{username} token is missing the required sub claim: {claims}")
+        if claims.get("preferred_username") != username:
+            raise AssertionError(
+                f"{username} token principal mismatch: {claims.get('preferred_username')}"
+            )
         tokens[username] = token
         print(
-            f"[pass] {username} token subject={claims['sub']} roles={sorted(required_roles)}"
+            f"[pass] {username} principal={claims['preferred_username']} roles={sorted(required_roles)}"
         )
 
     wait_for_gateway(tokens["alice"])
