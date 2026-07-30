@@ -55,7 +55,7 @@ services:
     build:
       # Kong and oidc-role are built directly from the separate Kong-Role repository.
       # The commit is pinned so the lab remains reproducible.
-      context: https://github.com/vtavakkoli/Kong-Role.git#76a11e2faf5571657206ad48d611e786898ea904
+      context: https://github.com/vtavakkoli/Kong-Role.git#62f365509ddebd9ac59586375a0dcebb590d4984
     image: iam-lab-kong-role:2.0.0
     container_name: iam-lab-kong
     ports:
