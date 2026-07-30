@@ -1,0 +1,35 @@
+name: kong-role-integration
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run IAM integration test
+        run: |
+          docker compose --profile integration-test up \
+            --build \
+            --abort-on-container-exit \
+            --exit-code-from integration-test \
+            integration-test
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --profile integration-test logs --no-color
+
+      - name: Stop lab
+        if: always()
+        run: docker compose --profile integration-test down --volumes --remove-orphans

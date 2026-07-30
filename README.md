@@ -1,158 +1,137 @@
-# IAM Lab: Kong, Keycloak, LDAP & .NET Demo
+# IAM Lab: Kong-Role, Keycloak, LDAP & .NET Demo
 
 > **Written by Vahid Tavakkoli, 2026**
 
-A hands-on **Identity and Access Management (IAM) lab** that demonstrates how to combine:
+A hands-on Identity and Access Management lab demonstrating:
 
-- **Keycloak** for identity, OpenID Connect, and role assignments
-- **Kong Gateway** (DB-less) for API routing and authorization checks
-- **OpenLDAP** as a simple user directory source
-- **.NET 8** backend-for-frontend (BFF-style) apps and protected LOB APIs
+- **Keycloak** for identity, OpenID Connect, and realm-role assignments
+- **Kong Community Gateway** with the external [Kong-Role](https://github.com/vtavakkoli/Kong-Role) plugin
+- **Kong ACL** for route-level authorization using authenticated JWT role groups
+- **OpenLDAP** as a user-directory source
+- **.NET 8** web applications and protected LOB APIs
 
-This repository is designed as a learning and experimentation environment for IAM concepts such as SSO, role-based API protection, and token-based service access.
+## Demo disclaimer
 
----
+This repository is a local lab. Credentials, HTTP endpoints, and hostnames are intentionally developer-friendly and are not production-safe. See [DISCLAIMER.md](DISCLAIMER.md).
 
-## ⚠️ Demo / Lab Disclaimer
+## Architecture
 
-This project is a **demo/lab environment only**.
+```text
+OpenLDAP ──► Keycloak ──JWT──► Kong-Role ──authenticated groups──► Kong ACL
+                                      │                              │
+                                      └──────────────────────────────┘
+                                                     │
+                                             LOB1 / LOB2 / LOB3
+```
 
-- Credentials, hostnames, and secrets are intentionally simplified.
-- Configuration is intentionally developer-friendly, **not production-safe**.
-- Do **not** deploy this repository directly in production.
+The local copy of the Kong plugin has been removed. Docker Compose builds the gateway directly from a pinned commit of the separate `Kong-Role` repository:
 
-See [DISCLAIMER.md](DISCLAIMER.md) for details.
+```text
+Kong-Role commit: f1fdd2e6e9c4b8b58fd0b3b76e67589d18c1abff
+Plugin version:   2.0.0
+```
 
----
-
-## Why this repository exists
-
-This lab helps engineers and architects quickly test IAM integration patterns without building all components from scratch. It is useful for:
-
-- local IAM proof-of-concepts
-- role and policy experiments
-- gateway/OIDC plugin prototyping
-- onboarding and demo workshops
-
----
-
-## Architecture at a glance
-
-The stack is orchestrated with Docker Compose and includes:
-
-- **openldap**: LDAP directory with demo users
-- **openldap-ui**: phpLDAPadmin for browsing LDAP
-- **keycloak**: Identity Provider with preloaded realm
-- **kong**: API Gateway with custom `oidc-role` plugin
-- **lob1 / lob2 / lob3**: protected .NET LOB APIs
-- **webapp1 / webapp2**: OIDC-enabled .NET web apps
-
-![System Architecture](system_architecture.svg)
-
----
+This commit includes a reproducible container dependency fix that vendors pinned `lua-resty-openidc`, `lua-resty-jwt`, and `lua-resty-hmac` runtime modules without relying on mutable LuaRocks mirrors. The pin keeps the lab reproducible while the gateway implementation remains maintained in one repository.
 
 ## Repository structure
 
 ```text
 .
 ├── docker-compose.yml
+├── gateway/
+│   └── kong.yml
 ├── keycloak/
 │   └── config/IAM_Lab_Realm.json
-├── kong/
-│   ├── config/kong.yml
-│   └── oidc/               # custom oidc-role plugin
 ├── ldap/
 │   └── bootstrap.ldif
 ├── lob-services/
-│   ├── Program.cs
-│   └── LOB.csproj
 ├── WebApp1/
-│   ├── Program.cs
-│   └── wwwroot/index.html
 ├── WebApp2/
-│   ├── Program.cs
-│   └── wwwroot/index.html
-└── docs and governance files
+├── tests/integration/
+│   └── test_kong_role.py
+└── .github/workflows/
+    └── kong-role-integration.yml
 ```
 
----
+## Start the lab
 
-## Quick start
+```bash
+docker compose up --build
+```
 
-1. **Clone and enter repository**
+Primary endpoints:
 
-   ```bash
-   git clone <repo-url>
-   cd IAM-LAB
-   ```
+- Keycloak: `http://localhost:9100`
+- phpLDAPadmin: `http://localhost:9150`
+- Kong proxy: `http://localhost:9180`
+- Kong Admin API: `http://localhost:9181`
+- WebApp1: `http://localhost:9101`
+- WebApp2: `http://localhost:9102`
 
-2. **Build and run services**
+The sample configuration uses `10.0.0.50` as the browser-facing host. Change `KC_HOSTNAME`, the web-app public URLs, and redirect URIs in `docker-compose.yml` when your development host uses another address.
 
-   ```bash
-   docker compose up --build
-   ```
+## Kong-Role v2 behavior
 
-3. **Open primary endpoints**
+The gateway uses one global `oidc-role` plugin instance to:
 
-   - Keycloak: `http://localhost:9100`
-   - phpLDAPadmin: `http://localhost:9150`
-   - Kong Proxy: `http://localhost:9180`
-   - WebApp1: `http://localhost:9101`
-   - WebApp2: `http://localhost:9102`
+1. validate bearer JWT signatures through Keycloak discovery/JWKS;
+2. verify the expected issuer and the configured `preferred_username` principal;
+3. extract all values from `realm_access.roles`;
+4. publish the roles as Kong authenticated groups;
+5. let each route ACL return `200` or `403` based on the required LOB role.
 
-4. **Sign in and test access**
+No synthetic Kong consumers are required.
 
-   - log in through one of the web apps
-   - call LOB endpoints through Kong
-   - adjust user roles in Keycloak and retest
+Role matrix:
 
----
+| User | LOB1 | LOB2 | LOB3 |
+|---|---:|---:|---:|
+| alice | allowed | denied | denied |
+| bob | allowed | allowed | denied |
+| charlie | allowed | allowed | allowed |
 
-## Core functional behavior (unchanged)
+## Run the integration test
 
-- OIDC login flow with Keycloak for web apps
-- Cookie/session handling in .NET BFF apps
-- Kong route-level role checks via custom plugin
-- LOB APIs returning simple JSON responses
+The test creates a temporary direct-grant Keycloak client through the Admin API, requests real JWTs for Alice, Bob, and Charlie, and calls every protected route through Kong.
 
----
+```bash
+docker compose --profile integration-test up \
+  --build \
+  --abort-on-container-exit \
+  --exit-code-from integration-test \
+  integration-test
+```
 
-## Demo credentials (non-production)
+It verifies:
+
+- missing token returns `401`;
+- malformed token returns `401`;
+- Keycloak tokens contain the expected issuer, principal, and realm roles;
+- allowed role/route combinations return `200` and reach the correct LOB service;
+- denied role/route combinations return `403`;
+- users with multiple roles retain all authorization groups.
+
+Clean up afterward:
+
+```bash
+docker compose --profile integration-test down --volumes --remove-orphans
+```
+
+The same test runs in GitHub Actions through `.github/workflows/kong-role-integration.yml`.
+
+## Demo credentials
 
 - Keycloak admin: `admin` / `admin`
 - LDAP admin DN: `cn=admin,dc=iam,dc=lab`
-- LDAP admin password: `admin`
+- LDAP password: `admin`
+- Users: `alice/alice`, `bob/bob`, and `charlie/charlie`
 
-Demo user examples are defined in `ldap/bootstrap.ldif`.
-
----
-
-## Governance and publication-readiness files
+## Governance
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [CHANGELOG.md](CHANGELOG.md)
 - [ROADMAP.md](ROADMAP.md)
 - [SECURITY.md](SECURITY.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- [LICENSE](LICENSE) *(MIT)*
+- [LICENSE](LICENSE)
 - [DISCLAIMER.md](DISCLAIMER.md)
-
----
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for planned improvements.
-
----
-
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening pull requests.
-
----
-
-## License
-
-This repository is licensed under the **MIT License**.
-
-See [LICENSE](LICENSE).
