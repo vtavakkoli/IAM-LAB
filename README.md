@@ -27,11 +27,11 @@ OpenLDAP ──► Keycloak ──JWT──► Kong-Role ──authenticated gro
 The local copy of the Kong plugin has been removed. Docker Compose builds the gateway directly from a pinned commit of the separate `Kong-Role` repository:
 
 ```text
-Kong-Role commit: 8dde703631b0993b55c1c113d5c6335712f9b27d
+Kong-Role commit: 76a11e2faf5571657206ad48d611e786898ea904
 Plugin version:   2.0.0
 ```
 
-The pin makes the lab reproducible while keeping the gateway implementation maintained in one repository.
+This commit includes the reproducible container dependency fix that installs the exact `lua-resty-openidc` library used by the plugin. The pin keeps the lab reproducible while the gateway implementation remains maintained in one repository.
 
 ## Repository structure
 
