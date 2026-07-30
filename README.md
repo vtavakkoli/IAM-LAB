@@ -38,6 +38,8 @@ This commit includes a reproducible container dependency fix that vendors pinned
 ```text
 .
 ├── docker-compose.yml
+├── .env
+├── start-windows.ps1
 ├── gateway/
 │   └── kong.yml
 ├── keycloak/
@@ -55,7 +57,39 @@ This commit includes a reproducible container dependency fix that vendors pinned
 
 ## Start the lab
 
+Use the current Docker Compose v2 syntax:
+
 ```bash
+docker compose up --build
+```
+
+### Windows / Docker Desktop
+
+The repository includes `.env` with `COMPOSE_BAKE=false`. This prevents Docker Desktop from delegating the build to Buildx Bake, because some Windows Buildx versions fail while parsing the pinned remote Git context used by Kong-Role.
+
+After pulling the latest `main` branch, run:
+
+```powershell
+docker compose up --build
+```
+
+Alternatively, use the Windows wrapper:
+
+```powershell
+.\start-windows.ps1
+```
+
+Detached mode:
+
+```powershell
+.\start-windows.ps1 -Detached
+```
+
+If `COMPOSE_BAKE=true` is already defined in the current PowerShell session, remove or override it first:
+
+```powershell
+Remove-Item Env:COMPOSE_BAKE -ErrorAction SilentlyContinue
+$env:COMPOSE_BAKE = "false"
 docker compose up --build
 ```
 
@@ -100,6 +134,12 @@ docker compose --profile integration-test up \
   --abort-on-container-exit \
   --exit-code-from integration-test \
   integration-test
+```
+
+On Windows:
+
+```powershell
+.\start-windows.ps1 -IntegrationTest
 ```
 
 It verifies:
