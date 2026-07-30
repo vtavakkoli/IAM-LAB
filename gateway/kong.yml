@@ -1,0 +1,66 @@
+_format_version: "3.0"
+_comment: "IAM Lab gateway using Kong-Role 2.0.0 and Keycloak realm roles"
+
+plugins:
+  - name: oidc-role
+    config:
+      auth_mode: jwt
+      client_id: kong
+      discovery: http://keycloak:8080/realms/IAM_Lab_Realm/.well-known/openid-configuration
+      expected_issuer: http://10.0.0.50:9100/realms/IAM_Lab_Realm
+      allowed_signing_algorithms:
+        - RS256
+      ssl_verify: false
+      principal_claim: sub
+      username_claim: preferred_username
+      authorization_claims:
+        - realm_access.roles
+      require_principal: true
+      require_authorization_claim: true
+      expose_userinfo: false
+      expose_id_token: false
+      expose_access_token: false
+
+services:
+  - name: lob1-service
+    url: http://lob1:8080
+
+  - name: lob2-service
+    url: http://lob2:8080
+
+  - name: lob3-service
+    url: http://lob3:8080
+
+routes:
+  - name: lob1-route
+    service: lob1-service
+    paths:
+      - /lob1
+    plugins:
+      - name: acl
+        config:
+          allow:
+            - lob1-user
+          hide_groups_header: true
+
+  - name: lob2-route
+    service: lob2-service
+    paths:
+      - /lob2
+    plugins:
+      - name: acl
+        config:
+          allow:
+            - lob2-user
+          hide_groups_header: true
+
+  - name: lob3-route
+    service: lob3-service
+    paths:
+      - /lob3
+    plugins:
+      - name: acl
+        config:
+          allow:
+            - lob3-user
+          hide_groups_header: true
