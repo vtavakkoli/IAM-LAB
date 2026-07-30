@@ -27,11 +27,11 @@ OpenLDAP ──► Keycloak ──JWT──► Kong-Role ──authenticated gro
 The local copy of the Kong plugin has been removed. Docker Compose builds the gateway directly from a pinned commit of the separate `Kong-Role` repository:
 
 ```text
-Kong-Role commit: 62f365509ddebd9ac59586375a0dcebb590d4984
+Kong-Role commit: f1fdd2e6e9c4b8b58fd0b3b76e67589d18c1abff
 Plugin version:   2.0.0
 ```
 
-This commit includes a reproducible container dependency fix that vendors the official `lua-resty-openidc` 1.8.0 module without relying on LuaRocks mirror resolution. The pin keeps the lab reproducible while the gateway implementation remains maintained in one repository.
+This commit includes a reproducible container dependency fix that vendors pinned `lua-resty-openidc`, `lua-resty-jwt`, and `lua-resty-hmac` runtime modules without relying on mutable LuaRocks mirrors. The pin keeps the lab reproducible while the gateway implementation remains maintained in one repository.
 
 ## Repository structure
 
@@ -68,14 +68,14 @@ Primary endpoints:
 - WebApp1: `http://localhost:9101`
 - WebApp2: `http://localhost:9102`
 
-The sample configuration still uses `10.0.0.50` as the browser-facing host. Change `KC_HOSTNAME`, the web-app public URLs, and redirect URIs in `docker-compose.yml` when your development host uses another address.
+The sample configuration uses `10.0.0.50` as the browser-facing host. Change `KC_HOSTNAME`, the web-app public URLs, and redirect URIs in `docker-compose.yml` when your development host uses another address.
 
 ## Kong-Role v2 behavior
 
 The gateway uses one global `oidc-role` plugin instance to:
 
 1. validate bearer JWT signatures through Keycloak discovery/JWKS;
-2. verify the expected issuer and required principal;
+2. verify the expected issuer and the configured `preferred_username` principal;
 3. extract all values from `realm_access.roles`;
 4. publish the roles as Kong authenticated groups;
 5. let each route ACL return `200` or `403` based on the required LOB role.
@@ -106,7 +106,7 @@ It verifies:
 
 - missing token returns `401`;
 - malformed token returns `401`;
-- Keycloak tokens contain the expected issuer and realm roles;
+- Keycloak tokens contain the expected issuer, principal, and realm roles;
 - allowed role/route combinations return `200` and reach the correct LOB service;
 - denied role/route combinations return `403`;
 - users with multiple roles retain all authorization groups.
