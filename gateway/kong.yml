@@ -11,7 +11,9 @@ plugins:
       allowed_signing_algorithms:
         - RS256
       ssl_verify: false
-      principal_claim: sub
+      # Keycloak 26.2 direct-grant access tokens in this lab expose
+      # preferred_username as the caller identity and omit sub.
+      principal_claim: preferred_username
       username_claim: preferred_username
       authorization_claims:
         - realm_access.roles
