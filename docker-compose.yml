@@ -1,7 +1,7 @@
-﻿networks:
+networks:
   iam_lab_net:
     driver: bridge
-  
+
 services:
   openldap:
     image: osixia/openldap:latest
@@ -11,19 +11,20 @@ services:
       LDAP_ORGANISATION: "IAM LAB ORG"
       LDAP_DOMAIN: "iam.lab"
       LDAP_ADMIN_PASSWORD: "admin"
-      LDAP_TLS: "false"             # deactivate TLS for the LDAP server
+      LDAP_TLS: "false"
     volumes:
       - ./ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-bootstrap.ldif
     networks:
       - iam_lab_net
     command: --copy-service
     restart: unless-stopped
+
   openldap-ui:
     image: osixia/phpldapadmin:latest
     container_name: iam-lab-openldap-ui
     environment:
       PHPLDAPADMIN_LDAP_HOSTS: openldap
-      PHPLDAPADMIN_HTTPS: "false"   # deactivate HTTPS
+      PHPLDAPADMIN_HTTPS: "false"
     networks:
       - iam_lab_net
     ports:
@@ -31,6 +32,7 @@ services:
     restart: unless-stopped
     depends_on:
       - openldap
+
   keycloak:
     image: keycloak/keycloak:26.2
     container_name: iam-lab-keycloak
@@ -38,40 +40,42 @@ services:
     ports:
       - "9100:8080"
     volumes:
-      - ./keycloak/config:/opt/keycloak/data/import
+      - ./keycloak/config:/opt/keycloak/data/import:ro
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HOSTNAME: http://10.0.0.50:9100
-      KC_HOSTNAME_PORT: 9100
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HEALTH_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
-      KC_PROXY: "edge"
+      KC_PROXY_HEADERS: xforwarded
     networks: [iam_lab_net]
 
   kong:
-    build: ./kong
-    image: kong-oidc:latest
+    build:
+      # Kong and oidc-role are built directly from the separate Kong-Role repository.
+      # The commit is pinned so the lab remains reproducible.
+      context: https://github.com/vtavakkoli/Kong-Role.git#8dde703631b0993b55c1c113d5c6335712f9b27d
+    image: iam-lab-kong-role:2.0.0
     container_name: iam-lab-kong
     ports:
-      - "9180:8000"   # proxy
-      - "9181:8001"   # admin
+      - "9180:8000"
+      - "9181:8001"
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
       KONG_PROXY_LISTEN: 0.0.0.0:8000
-      KONG_PLUGINS: bundled, oidc-role, acl
-      KONG_X_SESSION_SECRET: "a-very-long-random-string"
-      KONG_NGINX_LARGE_CLIENT_HEADER_BUFFERS: "'4 16k'"
-      KONG_LOG_LEVEL: debug
+      KONG_PLUGINS: bundled,oidc-role,acl
+      KONG_NGINX_LARGE_CLIENT_HEADER_BUFFERS: "4 16k"
+      KONG_LOG_LEVEL: notice
     volumes:
-      - ./kong/config:/etc/kong
+      - ./gateway:/etc/kong:ro
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
     restart: unless-stopped
     networks: [iam_lab_net]
 
@@ -128,11 +132,11 @@ services:
       CLIENT_SECRET: S3cr3tNumberOne
       REDIRECT_URI: http://10.0.0.50:9101/auth/callback
       KONG_API_URL: http://kong:8000
-      OIDC_DISABLE_HTTPS: "true"      # dev only; switch to false with TLS
+      OIDC_DISABLE_HTTPS: "true"
       SERVICE_NAME: WebApp1
       COOKIE_NAME: iam-lab-bff-app1
     volumes:
-      - ./data-protection/webapp1:/keys   # persist DataProtection keys
+      - ./data-protection/webapp1:/keys
     depends_on:
       kong:
         condition: service_healthy
@@ -161,4 +165,28 @@ services:
       kong:
         condition: service_healthy
     restart: unless-stopped
+    networks: [iam_lab_net]
+
+  integration-test:
+    image: python:3.12-alpine
+    container_name: iam-lab-integration-test
+    profiles: [integration-test]
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: IAM_Lab_Realm
+      KONG_URL: http://kong:8000
+    volumes:
+      - ./tests/integration:/tests:ro
+    command: ["python", "/tests/test_kong_role.py"]
+    depends_on:
+      keycloak:
+        condition: service_started
+      kong:
+        condition: service_healthy
+      lob1:
+        condition: service_started
+      lob2:
+        condition: service_started
+      lob3:
+        condition: service_started
     networks: [iam_lab_net]
